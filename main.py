@@ -9,6 +9,6 @@ def greeting(name : str) -> str:
   else:
     return f"Hello, {clear_name}"
 
-user_input = input('What is your name?\n>>> ')
-
-print(greeting(user_input))
+if __name__ == "__main__":
+  user_input = input('What is your name?\n>>> ')
+  print(greeting(user_input))
