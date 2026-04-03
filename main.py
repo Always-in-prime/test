@@ -1,5 +1,5 @@
 def greeting(name):
-  return "Hello, " + name
+  return f"Hello, {name}"
 
 user_input = input('What is your name?\n>>> ')
 
