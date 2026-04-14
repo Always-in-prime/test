@@ -1,1 +1,1 @@
-Nothing needs to be added to the .gitignore file based on the provided changes. The modified files (main.py and test_main.py) are Python source code files which should not be ignored. Since there are no build artifacts, dependency directories, or temporary files in the changes, no additional ignore rules are necessary.
+Nothing should be ignored based on the provided file changes, as they only include source/config files (.github/workflows/python-tests.yml, README.md) with no build artifacts, dependencies, or temporary files.
