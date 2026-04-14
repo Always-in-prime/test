@@ -1,1 +1,4 @@
-Nothing should be ignored based on the provided file changes, as they only include source/config files (.github/workflows/python-tests.yml, README.md) with no build artifacts, dependencies, or temporary files.
+```
+__pycache__/
+*.pyc
+```
