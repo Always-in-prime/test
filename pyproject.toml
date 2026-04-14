@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=64", "setuptools_scm[toml]>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "test-prime"  # <--- ЗАМЕНИ на уникальное имя твоего пакета для PyPI
+version = "0.0.1"    # Версия будет перезаписана setuptools_scm из git-тегов
+description = "Desktop application with auth, products, and reporting"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [
+    {name = "Dr. Prime", email = "your_email@example.com"} # <--- ЗАМЕНИ email
+]
+
+# Зависимости твоего приложения
+dependencies = [
+    # Пример: если ты используешь Tkinter, он встроен в Python, но если есть другие либы:
+    # "requests",
+    # "pandas",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "flake8",
+    "black",
+    "build",
+    "twine"
+]
+
+[tool.setuptools_scm]
+# Эта секция говорит setuptools брать версию из Git-тегов
+# Если тегов нет, версия будет выглядеть как 0.0.1.dev1+g<commit_hash>
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"] # Если твой код лежит в папке src/
+# ИЛИ, если код лежит просто в папке с именем пакета, например "myapp/", то:
+# include = ["myapp*"]
+
+# Если у тебя простая структура без папки src, и код лежит в корне или в одной папке,
+# можно упростить:
+# [tool.setuptools]
+# packages = ["имя_папки_с_кодом"]
