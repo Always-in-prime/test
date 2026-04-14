@@ -4,12 +4,7 @@ on:
   push:
     tags:
       - 'v*.*.*'
-  workflow_call:
-    inputs:
-      python-version:
-        required: false
-        type: string
-        default: '3.11'
+  workflow_call: # Позволяет вызывать этот workflow из других
 
 jobs:
   build:
@@ -17,17 +12,17 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write  # Required for trusted publishing if needed later
+      id-token: write # Для trusted publishing на PyPI (опционально)
 
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Important for setuptools_scm to determine version
+          fetch-depth: 0 # Важно для setuptools_scm
 
-      - name: Set up Python ${{ inputs.python-version }}
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ inputs.python-version }}
+          python-version: '3.11'
           cache: 'pip'
 
       - name: Install pypa/build
@@ -45,4 +40,4 @@ jobs:
         with:
           name: python-package-distributions
           path: dist/
-          retention-days: 7
+          retention-days: 5
