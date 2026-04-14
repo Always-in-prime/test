@@ -1,4 +1,4 @@
-from main import greeting
+from src.test_prime.main import greeting
 
 
 def test_greeting_valid():
