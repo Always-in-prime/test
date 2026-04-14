@@ -3,49 +3,89 @@
 A simple Python script that greets users with their names, featuring clean code and automated testing.
 
 ## Features
-- **Type Hinting**: Fully annotated functions.
-- **Input Cleaning**: Trims whitespace and capitalizes names.
+
+- **Type Hinting**: Fully annotated functions for better IDE support.
+- **Input Cleaning**: Trims whitespace and capitalizes names properly.
 - **Edge Case Handling**: Greets as "Stranger" if no name is provided.
-- **CI/CD**: Automated testing via GitHub Actions on every push and pull request.
+- **Well-Tested**: Comprehensive unit tests covering various input scenarios.
+- **Package Structure**: Properly organized as an importable Python package.
+
+## Installation
+
+```bash
+pip install -e .
+```
+
+Or with development dependencies:
+
+```bash
+pip install -e ".[dev]"
+```
 
 ## How to Run
+
 1. Clone the repository:
    ```bash
    git clone https://github.com/Always-in-prime/test.git
    cd test
    ```
+
 2. Run the script:
    ```bash
-   python main.py
+   python src/test_prime/main.py
+   ```
+
+3. Or use it as a module:
+   ```python
+   from src.test_prime import greeting
+   print(greeting("Alice"))  # Hello, Alice
    ```
 
 ## Testing
 
-### Manual Testing
-Run the automated tests manually:
+Run the automated tests:
+
 ```bash
 python test_main.py
 ```
 
-### Auto Build & CI/CD
-This project uses GitHub Actions for continuous integration. Tests are automatically run:
-- On every push to any branch
-- On every pull request
+Or with pytest (if installed):
 
-The CI pipeline:
-1. Sets up Python 3.10 environment
-2. Runs all unit tests
-3. Reports pass/fail status
-
-Check the **Actions** tab in the GitHub repository to view build history and test results.
+```bash
+pytest test_main.py -v
+```
 
 ## Project Structure
+
 ```
-├── .github/
-│   └── workflows/
-│       └── python-tests.yml    # CI/CD configuration
-├── main.py                     # Main greeting script
-├── test_main.py                # Unit tests
-├── README.md                   # This file
-└── .gitignore                  # Git ignore rules
+├── src/
+│   └── test_prime/
+│       ├── __init__.py      # Package initialization
+│       └── main.py          # Main greeting function
+├── test_main.py             # Unit tests
+├── pyproject.toml           # Project configuration
+├── README.md                # This file
+└── .gitignore               # Git ignore rules
+```
+
+## API
+
+### `greeting(name: str) -> str`
+
+Generate a personalized greeting message.
+
+**Parameters:**
+- `name` (str): The name to greet. Can include leading/trailing whitespace.
+
+**Returns:**
+- str: A formatted greeting string. Returns "Hello, Stranger!" if name is empty.
+
+**Examples:**
+```python
+>>> greeting("alex")
+'Hello, Alex'
+>>> greeting("  ")
+'Hello, Stranger!'
+>>> greeting("jANE dOE")
+'Hello, Jane Doe'
 ```
