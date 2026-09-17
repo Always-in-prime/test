@@ -1,14 +1,39 @@
-# Greeting Script
+# test-prime
 
-A simple Python script that greets users with their names, featuring clean code and automated testing.
+A greeting module that treats user input as hostile.
 
-## Features
+[![CI](https://github.com/Always-in-prime/test/actions/workflows/ci.yml/badge.svg)](https://github.com/Always-in-prime/test/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/python-3.9%20%7C%203.10%20%7C%203.11%20%7C%203.12-blue)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-- **Type Hinting**: Fully annotated functions for better IDE support.
-- **Input Cleaning**: Trims whitespace and capitalizes names properly.
-- **Edge Case Handling**: Greets as "Stranger" if no name is provided.
-- **Well-Tested**: Comprehensive unit tests covering various input scenarios.
-- **Package Structure**: Properly organized as an importable Python package.
+## What this is
+
+A single public function, `greeting(name)`, that turns an arbitrary
+user-supplied string into a clean, human-readable greeting. Underneath
+that friendly surface it is a small security boundary: every input
+passes through a fail-closed validation pipeline before a single
+character reaches the caller, the terminal, or a log record.
+
+## Security properties
+
+The module is designed to be safe when fed attacker-controlled strings.
+
+| Threat | Mitigation |
+|---|---|
+| ANSI / terminal escape injection | Rejected by the character allowlist (C0/C1 controls) |
+| Trojan Source / bidi overrides (CVE-2021-42574) | All Unicode format characters (`Cf`) rejected |
+| Zero-width / BOM smuggling | Rejected (`Cf`, `Zs`) |
+| Non-ASCII whitespace (NBSP, NNBSP, line/paragraph separators) | Rejected, never silently folded |
+| Lone surrogates, undecodable bytes | Rejected with `MalformedUnicodeError` |
+| DoS via multi-megabyte input | Char + UTF-8 byte caps, enforced twice |
+| ReDoS | Linear-time regexes only |
+| Log injection | Raw user input never reaches a log record |
+| Format-string injection | Template is a compile-time constant |
+| Error-message side channels | Generic message to the caller; typed details only to the audit logger |
+| Buffered-input blow-up | CLI reads one character at a time and drains the rest of an oversized line |
+
+See the module docstring in `src/test_prime/main.py` for the full model
+and the explicit non-goals.
 
 ## Installation
 
@@ -16,76 +41,103 @@ A simple Python script that greets users with their names, featuring clean code 
 pip install -e .
 ```
 
-Or with development dependencies:
+With development dependencies:
 
 ```bash
 pip install -e ".[dev]"
 ```
 
-## How to Run
+## Usage
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/Always-in-prime/test.git
-   cd test
-   ```
+```python
+from test_prime import greeting, SecurityError
 
-2. Run the script:
-   ```bash
-   python src/test_prime/main.py
-   ```
+greeting("alex")           # 'Hello, Alex'
+greeting("  jANE dOE  ")   # 'Hello, Jane Doe'
+greeting("o'neil")         # "Hello, O'Neil"
+greeting("mary-jane")      # 'Hello, Mary-Jane'
+greeting(None)             # 'Hello, Stranger!'
 
-3. Or use it as a module:
-   ```python
-   from src.test_prime import greeting
-   print(greeting("Alice"))  # Hello, Alice
-   ```
+try:
+    greeting("Jane\x1b]0;pwned\x07")
+except SecurityError as exc:
+    print("rejected:", type(exc).__name__)
+```
 
-## Testing
-
-Run the automated tests:
+## CLI
 
 ```bash
-python test_main.py
+python -m src.test_prime.main
 ```
 
-Or with pytest (if installed):
+Exit codes:
+
+| Code | Meaning |
+|---|---|
+| 0 | Success |
+| 1 | EOF or interrupt (Ctrl+C) |
+| 2 | Input rejected by the security pipeline |
+
+## Development
 
 ```bash
-pytest test_main.py -v
+pip install -e ".[dev]"
+
+pytest -q                                    # tests
+pytest --cov=src --cov-report=term-missing   # coverage
+ruff check .                                 # lint
+ruff format --check .                        # format check
+mypy                                         # types
+python -m build                              # wheel + sdist
 ```
 
-## Project Structure
+## Project structure
 
 ```
+.
 ├── src/
 │   └── test_prime/
-│       ├── __init__.py      # Package initialization
-│       └── main.py          # Main greeting function
-├── test_main.py             # Unit tests
-├── pyproject.toml           # Project configuration
-├── README.md                # This file
-└── .gitignore               # Git ignore rules
+│       ├── __init__.py    # public re-exports
+│       ├── main.py        # greeting() and the security pipeline
+│       └── py.typed       # PEP 561 marker
+├── test_main.py           # unit tests (organised by trust boundary)
+├── pyproject.toml         # build, lint, test, coverage, typing config
+├── .github/workflows/
+│   ├── ci.yml             # test matrix on 3.9–3.12
+│   ├── build.yml          # sdist + wheel on tags
+│   └── release.yml        # PyPI publish + GitHub release
+├── README.md
+└── LICENSE
 ```
 
 ## API
 
-### `greeting(name: str) -> str`
+### `greeting(name: str | None) -> str`
 
 Generate a personalized greeting message.
 
-**Parameters:**
-- `name` (str): The name to greet. Can include leading/trailing whitespace.
+**Parameters**
 
-**Returns:**
-- str: A formatted greeting string. Returns "Hello, Stranger!" if name is empty.
+- `name` — the name to greet. May contain leading/trailing whitespace,
+  tabs, newlines, and any mix of letter case. `None` is treated as an
+  empty name.
 
-**Examples:**
-```python
->>> greeting("alex")
-'Hello, Alex'
->>> greeting("  ")
-'Hello, Stranger!'
->>> greeting("jANE dOE")
-'Hello, Jane Doe'
-```
+**Returns**
+
+- A formatted greeting string. Returns `"Hello, Stranger!"` when `name`
+  is `None`, empty, or whitespace-only.
+
+**Raises**
+
+- `InvalidNameError` — `name` is neither `str` nor `None`.
+- `NameTooLongError` — input exceeds the character or byte cap.
+- `UnsafeCharacterError` — input contains a disallowed character.
+- `MalformedUnicodeError` — input is not valid, encodable Unicode.
+
+All four inherit from `SecurityError`, so a single `except SecurityError`
+catches every rejection path. `InvalidNameError` also inherits from
+`TypeError` for backward compatibility.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
