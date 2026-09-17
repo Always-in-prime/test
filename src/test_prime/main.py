@@ -31,6 +31,7 @@ emulator.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
 import sys
@@ -333,11 +334,8 @@ def _harden_stdio() -> None:
     standard error are left alone: crashing on an unencodable name would
     be a worse outcome than printing it via the default error handler.
     """
-    try:
+    with contextlib.suppress(AttributeError, ValueError, OSError):
         sys.stdin.reconfigure(errors="strict")  # type: ignore[union-attr]
-    except (AttributeError, ValueError, OSError):
-        # Older interpreters or a replaced stdin; nothing to harden.
-        pass
 
 
 def _read_bounded(prompt: str, limit: int) -> str:
