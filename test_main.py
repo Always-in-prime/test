@@ -66,6 +66,7 @@ from src.test_prime.main import (
 # 1. Happy path
 # =============================================================================
 
+
 class TestGreetingHappyPath:
     """Well-formed names are formatted correctly and predictably."""
 
@@ -84,12 +85,8 @@ class TestGreetingHappyPath:
             pytest.param("\tmary\t", "Mary", id="tabs-around"),
             pytest.param("o'neil", "O'Neil", id="apostrophe"),
             pytest.param("mary-jane", "Mary-Jane", id="hyphen"),
-            pytest.param(
-                "o'brien-smith", "O'Brien-Smith", id="apostrophe-hyphen"
-            ),
-            pytest.param(
-                "o\u2019neil", "O\u2019Neil", id="typographic-apostrophe"
-            ),
+            pytest.param("o'brien-smith", "O'Brien-Smith", id="apostrophe-hyphen"),
+            pytest.param("o\u2019neil", "O\u2019Neil", id="typographic-apostrophe"),
         ],
     )
     def test_valid_name__formats_correctly(
@@ -101,6 +98,7 @@ class TestGreetingHappyPath:
 # =============================================================================
 # 2. None and empty
 # =============================================================================
+
 
 class TestGreetingNoneAndEmpty:
     """Absent or blank input yields the fallback greeting."""
@@ -126,6 +124,7 @@ class TestGreetingNoneAndEmpty:
 # =============================================================================
 # 3. Type safety
 # =============================================================================
+
 
 class TestGreetingTypeSafety:
     """Non-string arguments are rejected with a typed, catchable error."""
@@ -162,6 +161,7 @@ class TestGreetingTypeSafety:
 # 4. Size limits
 # =============================================================================
 
+
 class TestGreetingSizeLimits:
     """Inputs above the hard caps are rejected before any processing."""
 
@@ -169,7 +169,7 @@ class TestGreetingSizeLimits:
         raw = "a" * MAX_INPUT_CHARS
         result = greeting(raw)
         assert result.startswith(GREETING_PREFIX)
-        assert result[len(GREETING_PREFIX):].lower() == raw
+        assert result[len(GREETING_PREFIX) :].lower() == raw
 
     def test_over_char_limit__raises(self) -> None:
         with pytest.raises(NameTooLongError):
@@ -192,6 +192,7 @@ class TestGreetingSizeLimits:
 # 5. Unicode hygiene
 # =============================================================================
 
+
 class TestGreetingUnicodeHygiene:
     """Malformed Unicode is rejected; well-formed Unicode is NFC-normalised."""
 
@@ -209,14 +210,15 @@ class TestGreetingUnicodeHygiene:
             greeting(raw)
 
     def test_decomposed__normalises_to_nfc(self) -> None:
-        nfd = "Jose\u0301"            # e + combining acute
-        nfc = "Jos\u00e9"             # precomposed é
+        nfd = "Jose\u0301"  # e + combining acute
+        nfc = "Jos\u00e9"  # precomposed é
         assert greeting(nfd) == greeting(nfc) == f"{GREETING_PREFIX}Jos\u00e9"
 
 
 # =============================================================================
 # 6. Character allowlist
 # =============================================================================
+
 
 class TestGreetingCharacterAllowlist:
     """Characters outside the allowlist raise UnsafeCharacterError."""
@@ -279,6 +281,7 @@ class TestGreetingCharacterAllowlist:
 # 7. Separators
 # =============================================================================
 
+
 class TestGreetingSeparators:
     """Hyphens and both apostrophe glyphs are preserved and capitalised."""
 
@@ -289,12 +292,8 @@ class TestGreetingSeparators:
             pytest.param("O'NEIL", "O'Neil", id="apostrophe-upper"),
             pytest.param("mary-jane", "Mary-Jane", id="hyphen-lower"),
             pytest.param("MARY-JANE", "Mary-Jane", id="hyphen-upper"),
-            pytest.param(
-                "o'brien-smith", "O'Brien-Smith", id="both-separators"
-            ),
-            pytest.param(
-                "o\u2019neil", "O\u2019Neil", id="typographic-apostrophe"
-            ),
+            pytest.param("o'brien-smith", "O'Brien-Smith", id="both-separators"),
+            pytest.param("o\u2019neil", "O\u2019Neil", id="typographic-apostrophe"),
             pytest.param("jean-luc", "Jean-Luc", id="french-hyphen"),
         ],
     )
@@ -315,6 +314,7 @@ class TestGreetingSeparators:
 # 8. Whitespace
 # =============================================================================
 
+
 class TestGreetingWhitespace:
     """All ASCII whitespace collapses to a single space and is trimmed."""
 
@@ -328,12 +328,8 @@ class TestGreetingWhitespace:
             pytest.param("\x0bmary\x0c", "Mary", id="vt-ff"),
             pytest.param("mary\t\n doe", "Mary Doe", id="tab-newline-inner"),
             pytest.param("jane   doe", "Jane Doe", id="three-spaces-inner"),
-            pytest.param(
-                "  jane   doe  ", "Jane Doe", id="padded-inner-spaces"
-            ),
-            pytest.param(
-                "\tjane\n\n  doe\n", "Jane Doe", id="mixed-inner"
-            ),
+            pytest.param("  jane   doe  ", "Jane Doe", id="padded-inner-spaces"),
+            pytest.param("\tjane\n\n  doe\n", "Jane Doe", id="mixed-inner"),
         ],
     )
     def test_whitespace__collapsed_and_trimmed(
@@ -353,12 +349,13 @@ class TestGreetingWhitespace:
 # 9. Output invariants
 # =============================================================================
 
+
 class TestGreetingOutputInvariants:
     """The returned string satisfies the same contract as the input."""
 
     def test_idempotent(self) -> None:
         once = greeting("o'neil-mcdonald")
-        display = once[len(GREETING_PREFIX):]
+        display = once[len(GREETING_PREFIX) :]
         assert greeting(display) == once
 
     def test_output_length__bounded(self) -> None:
@@ -385,7 +382,7 @@ class TestGreetingOutputInvariants:
     )
     def test_output__contains_only_allowlisted_characters(self, raw: str) -> None:
         result = greeting(raw)
-        display = result[len(GREETING_PREFIX):]
+        display = result[len(GREETING_PREFIX) :]
         allowed_marks = {" ", "-", "'", "\u2019"}
         allowed_categories = {"Lu", "Ll", "Lt", "Lm", "Lo", "Mn", "Mc"}
         for ch in display:
@@ -404,6 +401,7 @@ class TestGreetingOutputInvariants:
 # 10. Logging
 # =============================================================================
 
+
 class TestGreetingLogging:
     """User input must never reach a log record, on any path."""
 
@@ -412,9 +410,7 @@ class TestGreetingLogging:
     ) -> None:
         payload = "Jane\x1b]0;evil\u202eDoe"
         # Combined context managers, as required by ruff's SIM117.
-        with caplog.at_level(logging.DEBUG), pytest.raises(
-            UnsafeCharacterError
-        ):
+        with caplog.at_level(logging.DEBUG), pytest.raises(UnsafeCharacterError):
             greeting(payload)
 
         joined = "\n".join(r.getMessage() for r in caplog.records)
@@ -425,9 +421,7 @@ class TestGreetingLogging:
     def test_audit_log__records_category_only(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        with caplog.at_level(logging.WARNING), pytest.raises(
-            UnsafeCharacterError
-        ):
+        with caplog.at_level(logging.WARNING), pytest.raises(UnsafeCharacterError):
             greeting("Jane\x1bDoe")
 
         messages = [r.getMessage() for r in caplog.records]
@@ -438,6 +432,7 @@ class TestGreetingLogging:
 # 11. CLI bounded reader
 # =============================================================================
 
+
 class TestBoundedReader:
     """`_read_bounded` enforces the char cap and leaves stdin consistent."""
 
@@ -445,9 +440,7 @@ class TestBoundedReader:
         monkeypatch.setattr(sys, "stdin", io.StringIO("alex\n"))
         assert _read_bounded("", MAX_INPUT_CHARS) == "alex"
 
-    def test_eof_returns_partial_line(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_eof_returns_partial_line(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(sys, "stdin", io.StringIO("alex"))
         assert _read_bounded("", MAX_INPUT_CHARS) == "alex"
 
