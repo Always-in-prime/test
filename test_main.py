@@ -73,22 +73,25 @@ class TestGreetingHappyPath:
     @pytest.mark.parametrize(
         ("raw", "expected_display"),
         [
-            ("alex", "Alex"),
-            ("ALEX", "Alex"),
-            ("iVAN", "Ivan"),
-            ("BOB", "Bob"),
-            ("charlie", "Charlie"),
-            ("z", "Z"),
-            ("  z  ", "Z"),
-            ("john doe", "John Doe"),
-            ("jANE dOE", "Jane Doe"),
-            ("\tmary\t", "Mary"),
-            ("o'neil", "O'Neil"),
-            ("mary-jane", "Mary-Jane"),
-            ("o'brien-smith", "O'Brien-Smith"),
-            ("o\u2019neil", "O\u2019Neil"),  # typographic apostrophe
+            pytest.param("alex", "Alex", id="lowercase"),
+            pytest.param("ALEX", "Alex", id="uppercase"),
+            pytest.param("iVAN", "Ivan", id="mixed-case"),
+            pytest.param("BOB", "Bob", id="uppercase-short"),
+            pytest.param("charlie", "Charlie", id="lowercase-long"),
+            pytest.param("z", "Z", id="single-char"),
+            pytest.param("  z  ", "Z", id="single-char-padded"),
+            pytest.param("john doe", "John Doe", id="two-words"),
+            pytest.param("jANE dOE", "Jane Doe", id="two-words-mixed"),
+            pytest.param("\tmary\t", "Mary", id="tabs-around"),
+            pytest.param("o'neil", "O'Neil", id="apostrophe"),
+            pytest.param("mary-jane", "Mary-Jane", id="hyphen"),
+            pytest.param(
+                "o'brien-smith", "O'Brien-Smith", id="apostrophe-hyphen"
+            ),
+            pytest.param(
+                "o\u2019neil", "O\u2019Neil", id="typographic-apostrophe"
+            ),
         ],
-        ids=lambda v: repr(v) if isinstance(v, str) else str(v),
     )
     def test_valid_name__formats_correctly(
         self, raw: str, expected_display: str
@@ -105,8 +108,17 @@ class TestGreetingNoneAndEmpty:
 
     @pytest.mark.parametrize(
         "raw",
-        [None, "", " ", "   ", "\t", "\n", "\r", "\n\n", " \t \n "],
-        ids=repr,
+        [
+            pytest.param(None, id="none"),
+            pytest.param("", id="empty"),
+            pytest.param(" ", id="one-space"),
+            pytest.param("   ", id="three-spaces"),
+            pytest.param("\t", id="tab"),
+            pytest.param("\n", id="newline"),
+            pytest.param("\r", id="cr"),
+            pytest.param("\n\n", id="two-newlines"),
+            pytest.param(" \t \n ", id="mixed-whitespace"),
+        ],
     )
     def test_missing_or_blank__returns_fallback(self, raw: str | None) -> None:
         assert greeting(raw) == f"{GREETING_PREFIX}Stranger{EMPTY_NAME_SUFFIX}"
@@ -121,8 +133,18 @@ class TestGreetingTypeSafety:
 
     @pytest.mark.parametrize(
         "bad",
-        [42, 3.14, 0, True, [], {}, (), b"alex", bytearray(b"alex"), object()],
-        ids=lambda v: type(v).__name__,
+        [
+            pytest.param(42, id="int"),
+            pytest.param(3.14, id="float"),
+            pytest.param(0, id="zero"),
+            pytest.param(True, id="bool"),
+            pytest.param([], id="list"),
+            pytest.param({}, id="dict"),
+            pytest.param((), id="tuple"),
+            pytest.param(b"alex", id="bytes"),
+            pytest.param(bytearray(b"alex"), id="bytearray"),
+            pytest.param(object(), id="object"),
+        ],
     )
     def test_non_string__raises_invalid_name(self, bad: object) -> None:
         with pytest.raises(InvalidNameError):
@@ -176,8 +198,12 @@ class TestGreetingUnicodeHygiene:
 
     @pytest.mark.parametrize(
         "raw",
-        ["\ud800", "\udfff", "Jane\ud800Doe", "Jane\udfff"],
-        ids=repr,
+        [
+            pytest.param("\ud800", id="high-surrogate"),
+            pytest.param("\udfff", id="low-surrogate"),
+            pytest.param("Jane\ud800Doe", id="high-surrogate-mid"),
+            pytest.param("Jane\udfff", id="low-surrogate-trailing"),
+        ],
     )
     def test_lone_surrogate__raises(self, raw: str) -> None:
         with pytest.raises(MalformedUnicodeError):
@@ -197,38 +223,41 @@ class TestGreetingCharacterAllowlist:
     """Characters outside the allowlist raise UnsafeCharacterError."""
 
     @pytest.mark.parametrize(
-        ("label", "hostile"),
+        "hostile",
         [
-            ("nul",           "\x00"),
-            ("bell",          "\x07"),
-            ("escape",        "\x1b"),
-            ("ansi_osc",      "\x1b]0;pwned\x07"),   # terminal-title injection
-            ("c1_csi",        "\x9b"),
-            ("zero_width",    "\u200b"),
-            ("lrm",           "\u200e"),
-            ("rlm",           "\u200f"),
-            ("bidi_lre",      "\u202a"),
-            ("bidi_rlo",      "\u202e"),             # Trojan Source, CVE-2021-42574
-            ("bidi_lri",      "\u2066"),
-            ("bom_zwnbsp",    "\ufeff"),
-            ("nbsp",          "\u00a0"),             # homoglyph smuggling
-            ("period",        "."),
-            ("exclamation",   "!"),
-            ("comma",         ","),
-            ("slash",         "/"),
-            ("backslash",     "\\"),
-            ("ascii_digit",   "0"),
+            pytest.param("\x00", id="nul"),
+            pytest.param("\x07", id="bell"),
+            pytest.param("\x1b", id="escape"),
+            pytest.param("\x1b]0;pwned\x07", id="ansi-osc"),
+            pytest.param("\x9b", id="c1-csi"),
+            pytest.param("\u200b", id="zero-width"),
+            pytest.param("\u200e", id="lrm"),
+            pytest.param("\u200f", id="rlm"),
+            pytest.param("\u202a", id="bidi-lre"),
+            pytest.param("\u202e", id="bidi-rlo"),
+            pytest.param("\u2066", id="bidi-lri"),
+            pytest.param("\ufeff", id="bom-zwnbsp"),
+            pytest.param("\u00a0", id="nbsp"),
+            pytest.param(".", id="period"),
+            pytest.param("!", id="exclamation"),
+            pytest.param(",", id="comma"),
+            pytest.param("/", id="slash"),
+            pytest.param("\\", id="backslash"),
+            pytest.param("0", id="ascii-digit"),
         ],
-        ids=lambda v: v if isinstance(v, str) and v.isidentifier() else repr(v),
     )
-    def test_disallowed_char_anywhere__raises(
-        self, label: str, hostile: str
-    ) -> None:
-        del label  # used only for the test id
+    def test_disallowed_char_anywhere__raises(self, hostile: str) -> None:
         with pytest.raises(UnsafeCharacterError):
             greeting(f"Jane{hostile}Doe")
 
-    @pytest.mark.parametrize("raw", ["john123", "user42", "x9y"], ids=repr)
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            pytest.param("john123", id="trailing-digits"),
+            pytest.param("user42", id="digits-inside"),
+            pytest.param("x9y", id="digit-between-letters"),
+        ],
+    )
     def test_digits_in_name__raise(self, raw: str) -> None:
         # Digits are category Nd, outside the allowlist by design.
         with pytest.raises(UnsafeCharacterError):
@@ -257,15 +286,18 @@ class TestGreetingSeparators:
     @pytest.mark.parametrize(
         ("raw", "expected_display"),
         [
-            ("o'neil", "O'Neil"),
-            ("O'NEIL", "O'Neil"),
-            ("mary-jane", "Mary-Jane"),
-            ("MARY-JANE", "Mary-Jane"),
-            ("o'brien-smith", "O'Brien-Smith"),
-            ("o\u2019neil", "O\u2019Neil"),
-            ("jean-luc", "Jean-Luc"),
+            pytest.param("o'neil", "O'Neil", id="apostrophe-lower"),
+            pytest.param("O'NEIL", "O'Neil", id="apostrophe-upper"),
+            pytest.param("mary-jane", "Mary-Jane", id="hyphen-lower"),
+            pytest.param("MARY-JANE", "Mary-Jane", id="hyphen-upper"),
+            pytest.param(
+                "o'brien-smith", "O'Brien-Smith", id="both-separators"
+            ),
+            pytest.param(
+                "o\u2019neil", "O\u2019Neil", id="typographic-apostrophe"
+            ),
+            pytest.param("jean-luc", "Jean-Luc", id="french-hyphen"),
         ],
-        ids=repr,
     )
     def test_separators__preserved_and_capitalised(
         self, raw: str, expected_display: str
@@ -290,17 +322,20 @@ class TestGreetingWhitespace:
     @pytest.mark.parametrize(
         ("raw", "expected_display"),
         [
-            ("  mary  ", "Mary"),
-            ("\tmary\t", "Mary"),
-            ("\nmary\n", "Mary"),
-            ("\rmary\r", "Mary"),
-            ("\x0bmary\x0c", "Mary"),
-            ("mary\t\n doe", "Mary Doe"),
-            ("jane   doe", "Jane Doe"),
-            ("  jane   doe  ", "Jane Doe"),
-            ("\tjane\n\n  doe\n", "Jane Doe"),
+            pytest.param("  mary  ", "Mary", id="surrounding-spaces"),
+            pytest.param("\tmary\t", "Mary", id="surrounding-tabs"),
+            pytest.param("\nmary\n", "Mary", id="surrounding-newlines"),
+            pytest.param("\rmary\r", "Mary", id="surrounding-cr"),
+            pytest.param("\x0bmary\x0c", "Mary", id="vt-ff"),
+            pytest.param("mary\t\n doe", "Mary Doe", id="tab-newline-inner"),
+            pytest.param("jane   doe", "Jane Doe", id="three-spaces-inner"),
+            pytest.param(
+                "  jane   doe  ", "Jane Doe", id="padded-inner-spaces"
+            ),
+            pytest.param(
+                "\tjane\n\n  doe\n", "Jane Doe", id="mixed-inner"
+            ),
         ],
-        ids=repr,
     )
     def test_whitespace__collapsed_and_trimmed(
         self, raw: str, expected_display: str
@@ -335,15 +370,19 @@ class TestGreetingOutputInvariants:
         # U+FB03 "ﬃ" title-cases to "FFI" (3 chars). A full input of
         # such characters must still fit under MAX_OUTPUT_CHARS, or the
         # module rejects a legitimate script outright.
-        raw = "\ufb03 " * (MAX_INPUT_CHARS // 2)
-        raw = raw[: MAX_INPUT_CHARS].rstrip()
+        raw = ("\ufb03 " * (MAX_INPUT_CHARS // 2))[:MAX_INPUT_CHARS].rstrip()
         result = greeting(raw)
         assert len(result) <= MAX_OUTPUT_CHARS
 
     @pytest.mark.parametrize(
         "raw",
-        ["alex", "o'neil", "mary-jane", "o'brien-smith", "jANE dOE"],
-        ids=repr,
+        [
+            pytest.param("alex", id="simple"),
+            pytest.param("o'neil", id="apostrophe"),
+            pytest.param("mary-jane", id="hyphen"),
+            pytest.param("o'brien-smith", id="both"),
+            pytest.param("jANE dOE", id="two-words"),
+        ],
     )
     def test_output__contains_only_allowlisted_characters(self, raw: str) -> None:
         result = greeting(raw)
@@ -352,9 +391,14 @@ class TestGreetingOutputInvariants:
         allowed_categories = {"Lu", "Ll", "Lt", "Lm", "Lo", "Mn", "Mc"}
         for ch in display:
             category = unicodedata.category(ch)
-            assert (
-                ch in allowed_marks or category in allowed_categories
-            ), f"disallowed char {ch!r} (category {category}) in output {display!r}"
+            # De Morgan form of (ch in marks or category in cats); kept as
+            # an if/else rather than an ``assert ... or ...`` so that the
+            # composite-assertion lint rule (PT018) stays quiet.
+            if ch not in allowed_marks and category not in allowed_categories:
+                pytest.fail(
+                    f"disallowed char {ch!r} (category {category}) "
+                    f"in output {display!r}"
+                )
 
 
 # =============================================================================
@@ -368,9 +412,11 @@ class TestGreetingLogging:
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
         payload = "Jane\x1b]0;evil\u202eDoe"
-        with caplog.at_level(logging.DEBUG):
-            with pytest.raises(UnsafeCharacterError):
-                greeting(payload)
+        # Combined context managers, as required by ruff's SIM117.
+        with caplog.at_level(logging.DEBUG), pytest.raises(
+            UnsafeCharacterError
+        ):
+            greeting(payload)
 
         joined = "\n".join(r.getMessage() for r in caplog.records)
         assert payload not in joined
@@ -380,9 +426,10 @@ class TestGreetingLogging:
     def test_audit_log__records_category_only(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        with caplog.at_level(logging.WARNING):
-            with pytest.raises(UnsafeCharacterError):
-                greeting("Jane\x1bDoe")
+        with caplog.at_level(logging.WARNING), pytest.raises(
+            UnsafeCharacterError
+        ):
+            greeting("Jane\x1bDoe")
 
         messages = [r.getMessage() for r in caplog.records]
         assert any("rejected_char" in m and "Cc" in m for m in messages), messages
