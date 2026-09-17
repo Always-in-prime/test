@@ -2,56 +2,75 @@ name: Release
 
 on:
   push:
-    tags:
-      - 'v*.*.*'
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
 
 jobs:
   build:
-    uses: ./.github/workflows/build.yml # Вызываем предыдущий workflow
+    uses: ./.github/workflows/build.yml
 
   publish-to-pypi:
-    name: Publish to PyPI 🚀
-    needs:
-      - build
+    name: Publish to PyPI
+    needs: [build]
     runs-on: ubuntu-latest
+    # An approval-gated environment is the last line of defence against
+    # a compromised tag being pushed straight to PyPI.
     environment:
       name: pypi
-      url: https://pypi.org/p/<your-package-name> # Замени <your-package-name> на имя твоего пакета
+      url: https://pypi.org/p/test-prime
     permissions:
-      id-token: write # Обязательно для trusted publishing
+      # Trusted Publishing (OIDC) needs *only* id-token: write. No API
+      # token secret is stored anywhere in the repository.
+      id-token: write
 
     steps:
-      - name: Download all the dists
-        uses: actions/download-artifact@v4
+      - name: Download distributions
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
         with:
           name: python-package-distributions
           path: dist/
 
-      - name: Publish distribution 📦 to PyPI
+      - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # Fail loudly if the version already exists on PyPI. A silent
+          # "already uploaded" is how you end up shipping the wrong
+          # build under the same version number.
+          skip-existing: false
+          # Print every file that will be uploaded before doing so.
+          verbose: true
 
   github-release:
-    name: Sign and Upload to GitHub Release
-    needs:
-      - publish-to-pypi
+    name: Create GitHub Release
+    needs: [publish-to-pypi]
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Для создания релиза
-      id-token: write # Для подписи артефактов (опционально)
+      contents: write  # required to create the release
+      id-token: write  # Sigstore attestation of the artefacts
 
     steps:
-      - name: Download all the dists
-        uses: actions/download-artifact@v4
+      - name: Download distributions
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
         with:
           name: python-package-distributions
           path: dist/
+
+      - name: Sign artefacts with Sigstore
+        uses: sigstore/gh-action-sigstore-python@f7ad0af6c8c4b6d0e1e9d5b6f0e6e3d5b8d1a3c5  # v3.0.1
+        with:
+          inputs: |
+            ./dist/*.tar.gz
+            ./dist/*.whl
+          release-signing-artifacts: false
 
       - name: Create GitHub Release
         env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: >-
-          gh release create
-          '${{ github.ref_name }}'
-          --repo '${{ github.repository }}'
-          --notes ""
-          dist/*
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --repo "${{ github.repository }}" \
+            --title "${{ github.ref_name }}" \
+            --generate-notes \
+            dist/*
