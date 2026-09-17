@@ -42,9 +42,9 @@ logger = logging.getLogger(__name__)
 audit_logger = logging.getLogger(f"{__name__}.audit")
 
 __all__ = [
+    "InvalidNameError",
     "MalformedUnicodeError",
     "NameTooLongError",
-    "InvalidNameError",
     "SecurityError",
     "UnsafeCharacterError",
     "greeting",
