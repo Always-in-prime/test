@@ -1,90 +1,205 @@
-"""Greeting module with robust name formatting functionality.
+"""Greeting module with paranoid, defense-in-depth name formatting.
 
-This module provides a single public entry point, :func:`greeting`, which
-turns an arbitrary user-supplied name into a clean, human-readable greeting.
-It handles whitespace normalisation, title-casing of hyphenated and
-apostrophised names, ``None`` input, and invalid (non-string) input.
+Security model
+--------------
+Untrusted input flows through a strict allowlist pipeline; any deviation
+raises a typed :class:`SecurityError` and is never echoed back to the
+caller or written to logs:
+
+1. Type check       - ``str`` or ``None`` only.
+2. Size guard       - bounded character count and UTF-8 byte length,
+                      enforced both before and after NFC normalisation.
+3. Unicode hygiene  - NFC normalisation; lone surrogates and unencodable
+                      input are rejected before anything else touches them.
+4. Char allowlist   - Unicode letters (``L*``) and combining marks
+                      (``M*``), plus a fixed set of separators. This
+                      rejects ANSI escapes, control chars, bidi overrides,
+                      zero-width chars, private-use areas and surrogates.
+5. Whitespace fold  - linear-time ``re`` only.
+6. Title-casing     - linear-time ``re`` only.
+7. Output guard     - result is re-checked against the same allowlist and
+                      length cap before being returned.
+
+Non-goals (explicitly *not* protected against here): timing side channels,
+DoS against the caller, and the host environment's terminal emulator.
 """
 
 from __future__ import annotations
 
 import logging
 import re
+import sys
+import unicodedata
 from typing import Final
 
 logger = logging.getLogger(__name__)
+audit_logger = logging.getLogger(f"{__name__}.audit")
+
+__all__ = [
+    "SecurityError",
+    "InvalidNameError",
+    "NameTooLongError",
+    "UnsafeCharacterError",
+    "MalformedUnicodeError",
+    "greeting",
+    "main",
+]
+
+
+# --- Security limits ---------------------------------------------------------
+#
+# Hard-coded on purpose: values that can be overridden by the environment
+# are themselves an attack surface.
+
+MAX_INPUT_CHARS: Final[int] = 256
+MAX_INPUT_BYTES: Final[int] = 1024
+MAX_OUTPUT_CHARS: Final[int] = MAX_INPUT_CHARS + 32
 
 
 # --- Constants ---------------------------------------------------------------
 
 DEFAULT_NAME: Final[str] = "Stranger"
-GREETING_TEMPLATE: Final[str] = "Hello, {name}"
-EMPTY_NAME_GREETING: Final[str] = f"Hello, {DEFAULT_NAME}!"
+GREETING_PREFIX: Final[str] = "Hello, "
+EMPTY_NAME_SUFFIX: Final[str] = "!"
 PROMPT: Final[str] = "What is your name?\n>>> "
 
-# Matches one or more Unicode whitespace characters (spaces, tabs,
-# newlines, non-breaking spaces, etc.).
-_WHITESPACE_RE: Final[re.Pattern[str]] = re.compile(r"\s+", re.UNICODE)
-
-# A name token: one or more letters, optionally joined by a hyphen or
-# an apostrophe (straight ' or typographic ’). Digits and underscores are
-# excluded so they never become part of a capitalised token.
-_NAME_TOKEN_RE: Final[re.Pattern[str]] = re.compile(
-    r"[^\W\d_]+(?:['\u2019-][^\W\d_]+)*", re.UNICODE
+# Allowlisted Unicode general categories. ``L*`` covers every letter
+# script (Latin, Cyrillic, Han, Arabic, ...); ``M*`` covers combining
+# marks still present after NFC (needed for a few scripts).
+_ALLOWED_CATEGORIES: Final[frozenset[str]] = frozenset(
+    {"Lu", "Ll", "Lt", "Lm", "Lo", "Mn", "Mc"}
 )
 
-# Splits a token on its separators. The capturing group keeps the
-# separators in the resulting list so they can be re-joined untouched.
-_TOKEN_SPLIT_RE: Final[re.Pattern[str]] = re.compile(r"(['\u2019-])")
+# Allowlisted separators: ASCII space, hyphen-minus, straight apostrophe,
+# and the typographic right single quotation mark.
+_ALLOWED_SEPARATORS: Final[frozenset[str]] = frozenset(
+    {" ", "-", "'", "\u2019"}
+)
 
-# Characters that must be preserved verbatim between capitalised parts.
+# Linear-time patterns only. No nested quantifiers over overlapping
+# character classes; every match consumes at least one new character.
+_WHITESPACE_RE: Final[re.Pattern[str]] = re.compile(r"\s+")
+_NAME_TOKEN_RE: Final[re.Pattern[str]] = re.compile(
+    r"[^\W\d_]+(?:['\u2019-][^\W\d_]+)*"
+)
+_TOKEN_SPLIT_RE: Final[re.Pattern[str]] = re.compile(r"(['\u2019-])")
 _SEPARATORS: Final[frozenset[str]] = frozenset({"'", "\u2019", "-"})
 
 
 # --- Errors ------------------------------------------------------------------
 
-class InvalidNameError(TypeError):
-    """Raised when a name argument is neither a string nor ``None``.
+class SecurityError(Exception):
+    """Base class for any input that fails the security pipeline."""
 
-    Subclasses :class:`TypeError` so callers that already catch ``TypeError``
-    for bad argument types continue to work.
+
+class InvalidNameError(SecurityError, TypeError):
+    """Argument is neither ``str`` nor ``None``.
+
+    Inherits from :class:`TypeError` for backward compatibility with the
+    previous public API.
     """
 
 
-# --- Helpers -----------------------------------------------------------------
+class NameTooLongError(SecurityError):
+    """Input exceeds the character or byte-length limit."""
 
-def _normalize_whitespace(value: str) -> str:
-    """Collapse all whitespace runs into single spaces and trim the ends.
+
+class UnsafeCharacterError(SecurityError):
+    """Input contains a character outside the allowlist."""
+
+
+class MalformedUnicodeError(SecurityError):
+    """Input contains invalid Unicode (lone surrogates, undecodable bytes)."""
+
+
+# --- Validation --------------------------------------------------------------
+
+def _is_safe_char(ch: str) -> bool:
+    """Return ``True`` if ``ch`` is allowed anywhere in a name.
+
+    A character is safe when it is one of the allowlisted separators or
+    its Unicode general category is in :data:`_ALLOWED_CATEGORIES`.
 
     Args:
-        value: Raw input string that may contain spaces, tabs, newlines,
-            or Unicode whitespace such as non-breaking spaces.
+        ch: A single-character string.
 
     Returns:
-        The input with every whitespace run replaced by a single space
-        and with leading/trailing whitespace removed.
-
-    Examples:
-        >>> _normalize_whitespace("  jane\\t\\ndoe  ")
-        'jane doe'
+        ``True`` if the character may appear in a name, ``False`` otherwise.
     """
-    return _WHITESPACE_RE.sub(" ", value).strip()
+    if ch in _ALLOWED_SEPARATORS:
+        return True
+    return unicodedata.category(ch) in _ALLOWED_CATEGORIES
 
+
+def _validate_and_normalize(raw: str) -> str:
+    """Run the full security pipeline over a raw name.
+
+    Performs size checks, NFC normalisation, and a per-character
+    allowlist check, then collapses whitespace and trims the result.
+
+    Args:
+        raw: The raw, untrusted input string.
+
+    Returns:
+        The normalised name, or an empty string if the input was
+        blank or whitespace-only.
+
+    Raises:
+        NameTooLongError: If ``raw`` exceeds the character or byte cap,
+            either before or after normalisation.
+        MalformedUnicodeError: If ``raw`` contains lone surrogates or
+            otherwise cannot be encoded/normalised.
+        UnsafeCharacterError: If any character falls outside the allowlist.
+    """
+    # 1. Cheap character-count guard, before any expensive work.
+    if len(raw) > MAX_INPUT_CHARS:
+        raise NameTooLongError("input exceeds character limit")
+
+    # 2. Byte-length guard, before normalisation allocates more memory.
+    try:
+        encoded = raw.encode("utf-8", errors="strict")
+    except UnicodeEncodeError as exc:
+        raise MalformedUnicodeError("input is not encodable as UTF-8") from exc
+    if len(encoded) > MAX_INPUT_BYTES:
+        raise NameTooLongError("input exceeds byte limit")
+
+    # 3. NFC normalisation so downstream checks see one canonical form.
+    try:
+        normalized = unicodedata.normalize("NFC", raw)
+    except (TypeError, ValueError) as exc:
+        raise MalformedUnicodeError("input is not valid Unicode") from exc
+
+    # Re-check length: NFC can expand the string.
+    if len(normalized) > MAX_INPUT_CHARS:
+        raise NameTooLongError("normalised input exceeds character limit")
+
+    # 4. Per-character allowlist. Audit without echoing the offending
+    #    codepoint, which could itself be a terminal payload.
+    for ch in normalized:
+        if not _is_safe_char(ch):
+            audit_logger.warning(
+                "rejected_char category=%s",
+                unicodedata.category(ch),
+            )
+            raise UnsafeCharacterError("input contains a disallowed character")
+
+    # 5. Collapse whitespace and trim; linear-time regex only.
+    return _WHITESPACE_RE.sub(" ", normalized).strip()
+
+
+# --- Formatting --------------------------------------------------------------
 
 def _capitalize_token(token: str) -> str:
     """Capitalize each sub-part of a name token.
 
-    Sub-parts are separated by hyphens or apostrophes. Each part is
-    capitalised independently while the separators are preserved as-is.
-    This yields ``O'Neil`` from ``o'neil`` and ``Mary-Jane`` from
-    ``mary-jane``.
+    Sub-parts are separated by hyphens or apostrophes. Each sub-part is
+    capitalised independently; the separators are preserved verbatim.
 
     Args:
-        token: A single name token produced by :data:`_NAME_TOKEN_RE`.
-            It is assumed to contain no whitespace.
+        token: A single whitespace-free name token.
 
     Returns:
-        The token in title case, with separators preserved verbatim.
+        The token in title case with separators preserved.
 
     Examples:
         >>> _capitalize_token("o'neil")
@@ -103,14 +218,10 @@ def _capitalize_token(token: str) -> str:
 
 
 def _to_display_name(value: str) -> str:
-    """Format a whitespace-normalised name for display.
-
-    Every name token (letters possibly joined by ``-`` or ``'``) is
-    capitalised; anything else — digits, punctuation, stray characters —
-    is left untouched.
+    """Title-case a normalised name, honouring hyphens and apostrophes.
 
     Args:
-        value: Whitespace-normalised input string.
+        value: A whitespace-normalised, allowlist-validated string.
 
     Returns:
         The value with each name token converted to title case.
@@ -140,6 +251,9 @@ def greeting(name: str | None) -> str:
 
     Raises:
         InvalidNameError: If ``name`` is neither ``str`` nor ``None``.
+        NameTooLongError: If ``name`` exceeds the input size limits.
+        UnsafeCharacterError: If ``name`` contains a disallowed character.
+        MalformedUnicodeError: If ``name`` is not valid, encodable Unicode.
 
     Examples:
         >>> greeting("alex")
@@ -155,46 +269,109 @@ def greeting(name: str | None) -> str:
         >>> greeting(None)
         'Hello, Stranger!'
     """
-    # Fast path: explicit None means "use the default greeting".
     if name is None:
-        logger.debug("greeting() received None; using default greeting")
-        return EMPTY_NAME_GREETING
+        return f"{GREETING_PREFIX}{DEFAULT_NAME}{EMPTY_NAME_SUFFIX}"
 
-    # Reject any non-string input with a clear, typed error.
     if not isinstance(name, str):
-        raise InvalidNameError(
-            f"name must be str or None, got {type(name).__name__!r}"
-        )
+        raise InvalidNameError("name must be str or None")
 
-    # Collapse tabs, newlines, and repeated spaces into single spaces.
-    normalized = _normalize_whitespace(name)
+    normalized = _validate_and_normalize(name)
     if not normalized:
-        logger.debug("greeting() received blank name; using default greeting")
-        return EMPTY_NAME_GREETING
+        return f"{GREETING_PREFIX}{DEFAULT_NAME}{EMPTY_NAME_SUFFIX}"
 
-    # Title-case each name token, honouring hyphens and apostrophes.
     formatted = _to_display_name(normalized)
-    logger.debug("greeting(): %r -> %r", name, formatted)
-    return GREETING_TEMPLATE.format(name=formatted)
+
+    # Defense in depth: the output must still satisfy the same allowlist
+    # and size caps that the input did.
+    if len(formatted) > MAX_OUTPUT_CHARS:
+        raise NameTooLongError("formatted output exceeds limit")
+    for ch in formatted:
+        if not _is_safe_char(ch):
+            raise UnsafeCharacterError("formatted output is not safe")
+
+    # Template is a fixed constant; the user value is passed as data only.
+    return f"{GREETING_PREFIX}{formatted}"
 
 
 # --- CLI ---------------------------------------------------------------------
 
-def main() -> None:
+def _harden_stdio() -> None:
+    """Reconfigure standard streams for a fail-closed CLI.
+
+    Standard input is set to strict error handling so undecodable bytes
+    raise rather than being silently replaced. Standard output and
+    standard error are left alone: crashing on an unencodable name would
+    be a worse outcome than printing it via the default error handler.
+    """
+    try:
+        sys.stdin.reconfigure(errors="strict")  # type: ignore[union-attr]
+    except (AttributeError, ValueError, OSError):
+        # Older interpreters or a replaced stdin; nothing to harden.
+        pass
+
+
+def _read_bounded(prompt: str, limit: int) -> str:
+    """Read a single line from stdin without allocating unbounded memory.
+
+    Unlike :func:`input`, this function reads one character at a time and
+    raises as soon as ``limit`` is exceeded, after draining the rest of
+    the line so the process leaves stdin in a sane state.
+
+    Args:
+        prompt: Text printed before reading.
+        limit: Maximum number of characters to accept.
+
+    Returns:
+        The line with the trailing newline removed.
+
+    Raises:
+        NameTooLongError: If more than ``limit`` characters are supplied.
+    """
+    print(prompt, end="", flush=True)
+    buf: list[str] = []
+    while True:
+        ch = sys.stdin.read(1)
+        if not ch or ch == "\n":
+            break
+        buf.append(ch)
+        if len(buf) > limit:
+            # Drain the rest of the line; never buffer it.
+            while ch and ch != "\n":
+                ch = sys.stdin.read(1)
+            raise NameTooLongError("input exceeds limit while reading")
+    return "".join(buf)
+
+
+def main() -> int:
     """Run the interactive greeting prompt.
 
-    Reads a name from standard input, prints the formatted greeting to
-    standard output, and exits with status ``1`` on invalid input or
-    ``KeyboardInterrupt`` (Ctrl+C).
+    Reads a bounded line from standard input, prints the formatted
+    greeting to standard output, and returns a process exit code.
+
+    Returns:
+        ``0`` on success, ``1`` on EOF or interrupt, ``2`` on rejected
+        input. The raw input is never echoed back on rejection, since it
+        may contain a terminal-control payload.
     """
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    _harden_stdio()
+
     try:
-        user_input = input(PROMPT)
-        print(greeting(user_input))
-    except (InvalidNameError, KeyboardInterrupt) as exc:
-        logger.error("Failed to greet user: %s", exc)
-        raise SystemExit(1) from exc
+        raw = _read_bounded(PROMPT, MAX_INPUT_CHARS)
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return 1
+
+    try:
+        print(greeting(raw))
+    except SecurityError as exc:
+        # Audit the failure class, never the payload.
+        audit_logger.warning("rejected_input reason=%s", type(exc).__name__)
+        print("Sorry, that name can't be used.", file=sys.stderr)
+        return 2
+
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
