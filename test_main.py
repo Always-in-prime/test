@@ -58,10 +58,9 @@ from src.test_prime.main import (
     NameTooLongError,
     SecurityError,
     UnsafeCharacterError,
-    _read_bounded,           # internal, but it *is* a security boundary
+    _read_bounded,  # internal, but it *is* a security boundary
     greeting,
 )
-
 
 # =============================================================================
 # 1. Happy path
