@@ -3,25 +3,30 @@
 Security model
 --------------
 Untrusted input flows through a strict allowlist pipeline; any deviation
-raises a typed :class:`SecurityError` and is never echoed back to the
-caller or written to logs:
+raises a typed :class:`SecurityError` and the raw value is never echoed
+back to the caller or written to logs:
 
 1. Type check       - ``str`` or ``None`` only.
 2. Size guard       - bounded character count and UTF-8 byte length,
                       enforced both before and after NFC normalisation.
-3. Unicode hygiene  - NFC normalisation; lone surrogates and unencodable
-                      input are rejected before anything else touches them.
+3. Unicode hygiene  - NFC normalisation; lone surrogates and
+                      unencodable input are rejected before anything
+                      else touches them.
 4. Char allowlist   - Unicode letters (``L*``) and combining marks
-                      (``M*``), plus a fixed set of separators. This
-                      rejects ANSI escapes, control chars, bidi overrides,
-                      zero-width chars, private-use areas and surrogates.
-5. Whitespace fold  - linear-time ``re`` only.
+                      (``M*``), the six ASCII whitespace characters, and
+                      a fixed set of separators. This rejects ANSI
+                      escapes, C0/C1 controls, bidi overrides, zero-width
+                      characters, private-use areas, surrogates, and
+                      non-ASCII whitespace such as NBSP (U+00A0), which
+                      is a known homoglyph-smuggling vector.
+5. Whitespace fold  - linear-time ``re`` over ASCII whitespace only.
 6. Title-casing     - linear-time ``re`` only.
-7. Output guard     - result is re-checked against the same allowlist and
-                      length cap before being returned.
+7. Output guard     - result is re-checked against the same allowlist
+                      and length cap before being returned.
 
-Non-goals (explicitly *not* protected against here): timing side channels,
-DoS against the caller, and the host environment's terminal emulator.
+Non-goals (explicitly *not* protected against here): timing side
+channels, DoS against the caller, and the host environment's terminal
+emulator.
 """
 
 from __future__ import annotations
@@ -36,11 +41,11 @@ logger = logging.getLogger(__name__)
 audit_logger = logging.getLogger(f"{__name__}.audit")
 
 __all__ = [
-    "SecurityError",
-    "InvalidNameError",
-    "NameTooLongError",
-    "UnsafeCharacterError",
     "MalformedUnicodeError",
+    "NameTooLongError",
+    "InvalidNameError",
+    "SecurityError",
+    "UnsafeCharacterError",
     "greeting",
     "main",
 ]
@@ -48,12 +53,14 @@ __all__ = [
 
 # --- Security limits ---------------------------------------------------------
 #
-# Hard-coded on purpose: values that can be overridden by the environment
-# are themselves an attack surface.
+# Hard-coded on purpose: any limit that can be overridden by the
+# environment is itself an attack surface.
 
 MAX_INPUT_CHARS: Final[int] = 256
 MAX_INPUT_BYTES: Final[int] = 1024
-MAX_OUTPUT_CHARS: Final[int] = MAX_INPUT_CHARS + 32
+# Worst-case title-casing expansion is 3x (e.g. U+FB03 "ﬃ" -> "FFI"),
+# plus room for the fixed greeting prefix and suffix.
+MAX_OUTPUT_CHARS: Final[int] = MAX_INPUT_CHARS * 3 + 64
 
 
 # --- Constants ---------------------------------------------------------------
@@ -64,21 +71,34 @@ EMPTY_NAME_SUFFIX: Final[str] = "!"
 PROMPT: Final[str] = "What is your name?\n>>> "
 
 # Allowlisted Unicode general categories. ``L*`` covers every letter
-# script (Latin, Cyrillic, Han, Arabic, ...); ``M*`` covers combining
-# marks still present after NFC (needed for a few scripts).
+# script (Latin, Cyrillic, Greek, Han, Arabic, ...); ``M*`` covers
+# combining marks that survive NFC (needed for Indic scripts and a few
+# others).
 _ALLOWED_CATEGORIES: Final[frozenset[str]] = frozenset(
     {"Lu", "Ll", "Lt", "Lm", "Lo", "Mn", "Mc"}
 )
 
-# Allowlisted separators: ASCII space, hyphen-minus, straight apostrophe,
-# and the typographic right single quotation mark.
+# ASCII whitespace *is* allowlisted, but only so that the later folding
+# step can consume it. Non-ASCII whitespace (NBSP U+00A0, Ogham space
+# U+1680, narrow NBSP U+202F, line separator U+2028, ...) is *not*
+# allowlisted: those glyphs are visually indistinguishable from a space
+# and are a known smuggling vector, so they must be rejected, not
+# silently folded.
+_ALLOWED_WHITESPACE: Final[frozenset[str]] = frozenset(
+    {" ", "\t", "\n", "\r", "\x0b", "\x0c"}
+)
+
+# Separators permitted *between* letters within a name token.
 _ALLOWED_SEPARATORS: Final[frozenset[str]] = frozenset(
-    {" ", "-", "'", "\u2019"}
+    {"-", "'", "\u2019"}
 )
 
 # Linear-time patterns only. No nested quantifiers over overlapping
 # character classes; every match consumes at least one new character.
-_WHITESPACE_RE: Final[re.Pattern[str]] = re.compile(r"\s+")
+#
+# The fold regex is deliberately ASCII-only. Using ``\s`` here would
+# match Unicode whitespace and silently undo the NBSP rejection above.
+_WHITESPACE_RE: Final[re.Pattern[str]] = re.compile(r"[ \t\n\r\x0b\x0c]+")
 _NAME_TOKEN_RE: Final[re.Pattern[str]] = re.compile(
     r"[^\W\d_]+(?:['\u2019-][^\W\d_]+)*"
 )
@@ -96,7 +116,7 @@ class InvalidNameError(SecurityError, TypeError):
     """Argument is neither ``str`` nor ``None``.
 
     Inherits from :class:`TypeError` for backward compatibility with the
-    previous public API.
+    previous public API, which documented ``TypeError`` for bad types.
     """
 
 
@@ -117,16 +137,25 @@ class MalformedUnicodeError(SecurityError):
 def _is_safe_char(ch: str) -> bool:
     """Return ``True`` if ``ch`` is allowed anywhere in a name.
 
-    A character is safe when it is one of the allowlisted separators or
-    its Unicode general category is in :data:`_ALLOWED_CATEGORIES`.
+    A character is safe when it is in the ASCII whitespace allowlist,
+    is one of the allowlisted separators, or its Unicode general
+    category is in :data:`_ALLOWED_CATEGORIES`.
 
     Args:
         ch: A single-character string.
 
     Returns:
         ``True`` if the character may appear in a name, ``False`` otherwise.
+
+    Examples:
+        >>> _is_safe_char("A")
+        True
+        >>> _is_safe_char("\\n")
+        True
+        >>> _is_safe_char("\\u00a0")   # NBSP
+        False
     """
-    if ch in _ALLOWED_SEPARATORS:
+    if ch in _ALLOWED_WHITESPACE or ch in _ALLOWED_SEPARATORS:
         return True
     return unicodedata.category(ch) in _ALLOWED_CATEGORIES
 
@@ -135,14 +164,15 @@ def _validate_and_normalize(raw: str) -> str:
     """Run the full security pipeline over a raw name.
 
     Performs size checks, NFC normalisation, and a per-character
-    allowlist check, then collapses whitespace and trims the result.
+    allowlist check, then collapses ASCII whitespace and trims the
+    result.
 
     Args:
         raw: The raw, untrusted input string.
 
     Returns:
-        The normalised name, or an empty string if the input was
-        blank or whitespace-only.
+        The normalised name, or an empty string if the input was blank
+        or whitespace-only.
 
     Raises:
         NameTooLongError: If ``raw`` exceeds the character or byte cap,
@@ -183,7 +213,7 @@ def _validate_and_normalize(raw: str) -> str:
             )
             raise UnsafeCharacterError("input contains a disallowed character")
 
-    # 5. Collapse whitespace and trim; linear-time regex only.
+    # 5. Collapse ASCII whitespace and trim; linear-time regex only.
     return _WHITESPACE_RE.sub(" ", normalized).strip()
 
 
@@ -242,7 +272,7 @@ def greeting(name: str | None) -> str:
 
     Args:
         name: The name to greet. May contain leading/trailing whitespace,
-            tabs or newlines, and any mix of letter case. ``None`` is
+            tabs, newlines, and any mix of letter case. ``None`` is
             treated as an empty name and yields the fallback greeting.
 
     Returns:
