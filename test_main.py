@@ -31,12 +31,12 @@ Layers
 
 Running
 -------
-    $ pytest -q test_greeting.py
-    $ pytest -q --cov=src.test_prime.main test_greeting.py
+    $ pytest -q
+    $ pytest -q --cov=src --cov-report=term-missing
 
 Requires ``pytest``. No third-party property-testing library is used so
-the suite runs on a bare CI image; property-style invariants are expressed
-via ``@pytest.mark.parametrize``.
+the suite runs on a bare CI image; property-style invariants are
+expressed via ``@pytest.mark.parametrize``.
 """
 
 from __future__ import annotations
@@ -244,7 +244,7 @@ class TestGreetingCharacterAllowlist:
     def test_combining_marks_survive_nfc__are_allowed(self) -> None:
         # After NFC, only marks that don't compose remain (e.g. Devanagari).
         # They are category Mn and must be permitted.
-        assert greeting("\u0915\u094d\u0937") .startswith(GREETING_PREFIX)  # क्ष
+        assert greeting("\u0915\u094d\u0937").startswith(GREETING_PREFIX)  # क्ष
 
 
 # =============================================================================
@@ -329,6 +329,15 @@ class TestGreetingOutputInvariants:
 
     def test_output_length__bounded(self) -> None:
         result = greeting("a" * MAX_INPUT_CHARS)
+        assert len(result) <= MAX_OUTPUT_CHARS
+
+    def test_title_case_expansion__within_cap(self) -> None:
+        # U+FB03 "ﬃ" title-cases to "FFI" (3 chars). A full input of
+        # such characters must still fit under MAX_OUTPUT_CHARS, or the
+        # module rejects a legitimate script outright.
+        raw = "\ufb03 " * (MAX_INPUT_CHARS // 2)
+        raw = raw[: MAX_INPUT_CHARS].rstrip()
+        result = greeting(raw)
         assert len(result) <= MAX_OUTPUT_CHARS
 
     @pytest.mark.parametrize(
