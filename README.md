@@ -52,11 +52,11 @@ pip install -e ".[dev]"
 ```python
 from test_prime import greeting, SecurityError
 
-greeting("alex")           # 'Hello, Alex'
-greeting("  jANE dOE  ")   # 'Hello, Jane Doe'
-greeting("o'neil")         # "Hello, O'Neil"
-greeting("mary-jane")      # 'Hello, Mary-Jane'
-greeting(None)             # 'Hello, Stranger!'
+greeting("alex")  # 'Hello, Alex'
+greeting("  jANE dOE  ")  # 'Hello, Jane Doe'
+greeting("o'neil")  # "Hello, O'Neil"
+greeting("mary-jane")  # 'Hello, Mary-Jane'
+greeting(None)  # 'Hello, Stranger!'
 
 try:
     greeting("Jane\x1b]0;pwned\x07")

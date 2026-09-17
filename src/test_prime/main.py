@@ -90,9 +90,7 @@ _ALLOWED_WHITESPACE: Final[frozenset[str]] = frozenset(
 )
 
 # Separators permitted *between* letters within a name token.
-_ALLOWED_SEPARATORS: Final[frozenset[str]] = frozenset(
-    {"-", "'", "\u2019"}
-)
+_ALLOWED_SEPARATORS: Final[frozenset[str]] = frozenset({"-", "'", "\u2019"})
 
 # Linear-time patterns only. No nested quantifiers over overlapping
 # character classes; every match consumes at least one new character.
@@ -108,6 +106,7 @@ _SEPARATORS: Final[frozenset[str]] = frozenset({"'", "\u2019", "-"})
 
 
 # --- Errors ------------------------------------------------------------------
+
 
 class SecurityError(Exception):
     """Base class for any input that fails the security pipeline."""
@@ -134,6 +133,7 @@ class MalformedUnicodeError(SecurityError):
 
 
 # --- Validation --------------------------------------------------------------
+
 
 def _is_safe_char(ch: str) -> bool:
     """Return ``True`` if ``ch`` is allowed anywhere in a name.
@@ -220,6 +220,7 @@ def _validate_and_normalize(raw: str) -> str:
 
 # --- Formatting --------------------------------------------------------------
 
+
 def _capitalize_token(token: str) -> str:
     """Capitalize each sub-part of a name token.
 
@@ -240,9 +241,7 @@ def _capitalize_token(token: str) -> str:
     """
     parts = _TOKEN_SPLIT_RE.split(token)
     return "".join(
-        part
-        if part in _SEPARATORS
-        else part[:1].upper() + part[1:].lower()
+        part if part in _SEPARATORS else part[:1].upper() + part[1:].lower()
         for part in parts
         if part
     )
@@ -267,6 +266,7 @@ def _to_display_name(value: str) -> str:
 
 
 # --- Public API --------------------------------------------------------------
+
 
 def greeting(name: str | None) -> str:
     """Generate a personalized greeting message.
@@ -325,6 +325,7 @@ def greeting(name: str | None) -> str:
 
 
 # --- CLI ---------------------------------------------------------------------
+
 
 def _harden_stdio() -> None:
     """Reconfigure standard streams for a fail-closed CLI.
