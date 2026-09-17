@@ -2,45 +2,72 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
+  workflow_dispatch:
+
+# Least privilege: no job here needs write access to the repository.
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same ref. Saves minutes and prevents
+# two runs from racing on the same coverage artefact.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
     name: Test on Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     strategy:
+      # Surface every failure in one run; the default fail-fast hides
+      # which versions broke and wastes reviewer time.
+      fail-fast: false
       matrix:
-        python-version: ['3.9', '3.10', '3.11', '3.12']
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
 
     steps:
-      - uses: actions/checkout@v4
+      # Actions pinned by commit SHA, not by mutable tag. Update via
+      # Dependabot or by hand after verifying the diff. A mutable tag
+      # (e.g. `@v4`) is a supply-chain attack vector.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          persist-credentials: false
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38  # v5.4.0
         with:
           python-version: ${{ matrix.python-version }}
-          cache: 'pip'
+          cache: pip
+          cache-dependency-path: pyproject.toml
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"  # Убедись, что в pyproject.toml есть группа [dev] с pytest и flake8/black
+          python -m pip install -e ".[dev]"
 
-      - name: Lint with flake8
+      - name: Lint (ruff)
         run: |
-          # Останавливаем сборку, если есть ошибки стилей
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+          ruff check .
+          ruff format --check .
 
-      - name: Test with pytest
-        run: |
-          pytest --cov=./ --cov-report=xml
+      - name: Type-check (mypy)
+        run: mypy
+
+      - name: Test (pytest)
+        run: pytest --cov=src --cov-report=xml --cov-report=term-missing
+
+      - name: CLI smoke test
+        run: printf "o'neil\n" | python -m src.test_prime.main
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v3
-        if: matrix.python-version == '3.11' # Загружаем отчет только для одной версии
+        # Only from a single matrix leg, and only on pushes to main or
+        # PRs from the same repository (not from forks, which have no
+        # access to secrets).
+        if: ${{ matrix.python-version == '3.11' && github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238  # v4.6.0
         with:
-          file: ./coverage.xml
+          files: ./coverage.xml
           fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
